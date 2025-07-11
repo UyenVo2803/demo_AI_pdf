@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trợ lý Chatbot RAG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Thêm thư viện PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js"></script>
+    <style>
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+        }
+        #chat-history::-webkit-scrollbar, #file-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        #chat-history::-webkit-scrollbar-track, #file-list::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        #chat-history::-webkit-scrollbar-thumb, #file-list::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 3px;
+        }
+        #chat-history::-webkit-scrollbar-thumb:hover, #file-list::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        .file-preview-item {
+            transition: all 0.3s ease;
+        }
+        .file-preview-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .spinner, .file-spinner {
+            border: 3px solid rgba(0, 0, 0, 0.2);
+            border-radius: 50%;
+            animation: spin 1s ease-in-out infinite;
+        }
+        .spinner { /* For send button */
+             border-top-color: #fff;
+             width: 20px;
+             height: 20px;
+        }
+        .file-spinner { /* For file processing */
+            border-top-color: #4f46e5;
+            width: 24px;
+            height: 24px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-5xl h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-violet-600 to-indigo-600 text-white p-4 shadow-md z-10">
+            <h1 class="text-xl md:text-2xl font-bold text-center">Trợ lý Chatbot Thông minh</h1>
+            <p class="text-center text-sm text-indigo-200">Chỉ trả lời dựa trên tài liệu bạn cung cấp</p>
+        </header>
+
+        <div class="flex flex-1 overflow-hidden">
+            <!-- File Management Panel -->
+            <aside class="w-1/3 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">Quản lý Tài liệu</h2>
+                
+                <!-- File Upload Area -->
+                <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-colors duration-300">
+                    <!-- Cập nhật accept để hỗ trợ PDF -->
+                    <input type="file" id="file-input" multiple accept="image/png, image/jpeg, application/pdf" class="hidden">
+                    <svg class="mx-auto h-12 w-12 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    <p class="mt-2 text-sm text-slate-600">Kéo thả hoặc <span class="font-semibold text-indigo-600">nhấn để chọn tệp</span></p>
+                    <!-- Cập nhật thông báo hỗ trợ -->
+                    <p class="text-xs text-slate-500 mt-1">Hỗ trợ PDF, PNG, JPG</p>
+                </div>
+
+                <!-- Uploaded Files List -->
+                <div id="file-list" class="mt-4 flex-1 overflow-y-auto space-y-3 pr-2">
+                    <!-- File previews will be inserted here -->
+                </div>
+            </aside>
+
+            <!-- Chat Panel -->
+            <main class="w-2/3 flex flex-col bg-white">
+                <!-- Chat History -->
+                <div id="chat-history" class="flex-1 p-6 overflow-y-auto">
+                    <div class="flex items-start gap-3 justify-start mb-6">
+                        <div class="bg-indigo-500 text-white p-3 rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                        </div>
+                        <div class="bg-slate-100 p-4 rounded-lg rounded-tl-none max-w-md">
+                            <p class="text-sm text-slate-800">Xin chào! Vui lòng tải lên tài liệu (PDF, hình ảnh) và đặt câu hỏi cho tôi. Tôi sẽ phân tích và trả lời trong phạm vi những gì được cung cấp.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input -->
+                <div class="p-4 border-t border-slate-200 bg-white">
+                    <form id="chat-form" class="flex items-center gap-3">
+                        <input type="text" id="chat-input" placeholder="Nhập câu hỏi của bạn ở đây..." class="flex-1 p-3 border border-slate-300 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow" autocomplete="off">
+                        <button type="submit" id="send-button" class="bg-indigo-600 text-white rounded-full p-3 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-transform active:scale-95 disabled:bg-indigo-300 disabled:cursor-not-allowed flex items-center justify-center w-12 h-12">
+                            <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            <div id="loading-spinner" class="spinner hidden"></div>
+                        </button>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // Cấu hình worker cho PDF.js
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        }
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatHistory = document.getElementById('chat-history');
+        const sendButton = document.getElementById('send-button');
+        const sendIcon = document.getElementById('send-icon');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        let uploadedFiles = []; // Store files as { id, name, type, base64, previewUrl }
+        let fileCounter = 0;
+
+        // --- File Handling Logic ---
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-indigo-500', 'bg-indigo-50');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-indigo-500', 'bg-indigo-50');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-indigo-500', 'bg-indigo-50');
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            for (const file of files) {
+                if (uploadedFiles.some(f => f.name.startsWith(file.name))) {
+                    alert(`Tệp "${file.name}" đã được tải lên.`);
+                    continue;
+                }
+
+                if (file.type.startsWith('image/')) {
+                    processImage(file);
+                } else if (file.type === 'application/pdf') {
+                    processPdf(file);
+                } else {
+                    alert('Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp PNG, JPG, hoặc PDF.');
+                }
+            }
+        }
+
+        function processImage(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target.result.split(',')[1];
+                const fileData = {
+                    id: `file-${fileCounter++}`,
+                    name: file.name,
+                    type: file.type,
+                    base64: base64,
+                    previewUrl: e.target.result
+                };
+                uploadedFiles.push(fileData);
+                renderFileList();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function processPdf(file) {
+            const fileId = `file-${fileCounter++}`;
+            const tempName = `${file.name} (đang xử lý...)`;
+            
+            // Add a temporary item to the list to show processing status
+            const tempItem = { id: fileId, name: tempName, isProcessing: true };
+            uploadedFiles.push(tempItem);
+            renderFileList();
+
+            try {
+                const reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                reader.onload = async (event) => {
+                    const pdfData = new Uint8Array(event.target.result);
+                    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                    const pagePromises = [];
+
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        pagePromises.push(renderPdfPage(pdf, i, file.name));
+                    }
+
+                    const pagesAsImages = await Promise.all(pagePromises);
+                    
+                    // Remove the temporary processing item
+                    const tempIndex = uploadedFiles.findIndex(f => f.id === fileId);
+                    if (tempIndex > -1) {
+                        uploadedFiles.splice(tempIndex, 1);
+                    }
+
+                    // Add the processed pages
+                    uploadedFiles.push(...pagesAsImages);
+                    renderFileList();
+                };
+            } catch (error) {
+                console.error('Lỗi xử lý PDF:', error);
+                alert(`Không thể xử lý tệp PDF: ${file.name}`);
+                // Remove the temporary item on error
+                const tempIndex = uploadedFiles.findIndex(f => f.id === fileId);
+                if (tempIndex > -1) {
+                    uploadedFiles.splice(tempIndex, 1);
+                }
+                renderFileList();
+            }
+        }
+
+        async function renderPdfPage(pdf, pageNum, originalName) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            const base64 = dataUrl.split(',')[1];
+            
+            return {
+                id: `file-${fileCounter++}`,
+                name: `${originalName} - Trang ${pageNum}`,
+                type: 'image/jpeg',
+                base64: base64,
+                previewUrl: dataUrl
+            };
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = '';
+            if (uploadedFiles.length === 0) {
+                fileList.innerHTML = '<p class="text-sm text-slate-500 text-center mt-4">Chưa có tài liệu nào được tải lên.</p>';
+                return;
+            }
+            
+            uploadedFiles.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-preview-item flex items-center p-2 bg-white rounded-lg shadow-sm border border-slate-200';
+                
+                if (file.isProcessing) {
+                    fileItem.innerHTML = `
+                        <div class="w-12 h-12 flex items-center justify-center flex-shrink-0"><div class="file-spinner"></div></div>
+                        <div class="flex-1 overflow-hidden">
+                            <p class="text-sm font-medium text-slate-700 truncate">${file.name}</p>
+                        </div>
+                    `;
+                } else {
+                    fileItem.innerHTML = `
+                        <img src="${file.previewUrl}" alt="${file.name}" class="w-12 h-12 object-cover rounded-md mr-3 bg-slate-100">
+                        <div class="flex-1 overflow-hidden">
+                            <p class="text-sm font-medium text-slate-700 truncate">${file.name}</p>
+                            <p class="text-xs text-slate-500">${(file.base64.length * 0.75 / 1024).toFixed(2)} KB</p>
+                        </div>
+                        <button onclick="removeFile('${file.id}')" class="text-slate-400 hover:text-red-500 p-1 rounded-full transition-colors flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    `;
+                }
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(fileId) {
+            uploadedFiles = uploadedFiles.filter(f => f.id !== fileId);
+            renderFileList();
+        }
+
+        // --- Chat Logic (largely unchanged) ---
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const question = chatInput.value.trim();
+            if (!question) return;
+
+            if (uploadedFiles.length === 0 || uploadedFiles.every(f => f.isProcessing)) {
+                addMessageToHistory('bot', 'Vui lòng tải lên và chờ xử lý xong tài liệu trước khi đặt câu hỏi.');
+                return;
+            }
+
+            addMessageToHistory('user', question);
+            chatInput.value = '';
+            setLoading(true);
+
+            try {
+                await askChatbot(question);
+            } catch (error) {
+                console.error('Error:', error);
+                addMessageToHistory('bot', 'Đã có lỗi xảy ra. Vui lòng thử lại. Lỗi: ' + error.message);
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        function setLoading(isLoading) {
+            sendButton.disabled = isLoading;
+            if(isLoading) {
+                sendIcon.classList.add('hidden');
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                sendIcon.classList.remove('hidden');
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        function addMessageToHistory(sender, text) {
+            const messageWrapper = document.createElement('div');
+            let messageHtml = '';
+
+            if (sender === 'user') {
+                messageHtml = `
+                    <div class="flex items-start gap-3 justify-end mb-6">
+                        <div class="bg-indigo-600 text-white p-4 rounded-lg rounded-br-none max-w-md">
+                            <p class="text-sm">${text}</p>
+                        </div>
+                        <div class="bg-slate-200 text-slate-600 p-3 rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </div>
+                    </div>
+                `;
+            } else { // bot
+                messageHtml = `
+                    <div class="flex items-start gap-3 justify-start mb-6">
+                        <div class="bg-indigo-500 text-white p-3 rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                        </div>
+                        <div class="bg-slate-100 p-4 rounded-lg rounded-tl-none max-w-md">
+                            <p class="text-sm text-slate-800">${text}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            messageWrapper.innerHTML = messageHtml;
+            chatHistory.appendChild(messageWrapper);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function askChatbot(question) {
+            const prompt = `
+                Bạn là một trợ lý phân tích tài liệu. Dựa TUYỆT ĐỐI và CHỈ DỰA VÀO nội dung trong các hình ảnh được cung cấp (các hình ảnh này có thể là các trang của một tệp PDF), hãy trả lời câu hỏi sau: "${question}".
+                
+                QUY TẮC QUAN TRỌNG:
+                1.  Không được suy diễn, bịa đặt hoặc lấy thông tin từ bất kỳ nguồn nào khác ngoài các hình ảnh đã cho.
+                2.  Nếu thông tin không có trong tài liệu, hãy trả lời chính xác là: "Tôi không tìm thấy thông tin trong tài liệu được cung cấp."
+                3.  Trích dẫn câu trả lời của bạn một cách tự nhiên nếu có thể.
+            `;
+
+            const imageParts = uploadedFiles
+                .filter(file => !file.isProcessing && file.base64)
+                .map(file => ({
+                    inlineData: {
+                        mimeType: file.type,
+                        data: file.base64
+                    }
+                }));
+            
+            const contents = [{
+                role: "user",
+                parts: [
+                    { text: prompt },
+                    ...imageParts
+                ]
+            }];
+
+            const payload = { contents };
+            const apiKey = "AIzaSyALzHKhpXSjiHWkm8R1BIK45Vifp8Xs0No"; // Leave empty
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    throw new Error(`API Error: ${response.status} ${response.statusText}. Details: ${JSON.stringify(errorBody)}`);
+                }
+
+                const result = await response.json();
+
+                let botResponse = 'Xin lỗi, tôi không thể tạo ra câu trả lời.';
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    botResponse = result.candidates[0].content.parts[0].text;
+                } else if (result.promptFeedback && result.promptFeedback.blockReason) {
+                     botResponse = `Câu trả lời đã bị chặn vì: ${result.promptFeedback.blockReason}. Vui lòng kiểm tra lại tài liệu hoặc câu hỏi.`;
+                }
+                
+                addMessageToHistory('bot', botResponse);
+
+            } catch (error) {
+                console.error("Fetch error:", error);
+                addMessageToHistory('bot', `Đã xảy ra lỗi kết nối đến AI. Vui lòng thử lại sau. (${error.message})`);
+            }
+        }
+
+        // Initial render
+        renderFileList();
+    </script>
+</body>
+</html>
